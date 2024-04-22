@@ -3,14 +3,11 @@
 import json
 import random
 import requests
+import time
 
 from argparse import ArgumentParser
 from PIL import Image
 from struct import unpack
-
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
 
 HEADINGS = {"NB": "↑", "EB": "→", "SB": "↓", "WB": "←"}
 
@@ -94,13 +91,24 @@ class LedDisplay:
 		self.fontHeight = height
 		self.font = output
 
-	def fetchDeparture(self, stop, route=None):
-		stopInfo = requests.get(f"{self.config['transit_api']}/{stop}").json()
-		for departure in stopInfo["departures"]:
-			if not route or departure["route_id"] == route:
-				return departure
+	def getColor(self, module):
+		if module and "color" in self.config[module]:
+			hexColor = self.config[module]["color"]
+			r = int(hexColor[1:3], 16)
+			g = int(hexColor[3:5], 16)
+			b = int(hexColor[5:7], 16)
+			return (r, g, b)
+		
+		return (255, 255, 255)  # Default to white
 
-	def print(self, im, imx, imy, string):
+	def print(self, module, imx, imy, string):
+		color = (255, 255, 255)
+		if module:
+			ofs = self.config[module]["position"]
+			imx += ofs[0]
+			imy += ofs[1]
+			color = self.getColor(module)
+
 		for letter in string:
 			# If letter missing, print '?'
 			if letter not in self.font:
@@ -110,21 +118,25 @@ class LedDisplay:
 			bitmap = self.font[letter]["bitmap"]
 
 			# If we're going off screen, return
-			if imx + width >= im.width or imy + self.fontHeight >= im.height:
+			if imx + width > self.im.width or imy + self.fontHeight > self.im.height:
 				return
 
 			for y in range(self.fontHeight):
 				for x in range(width):
 					if bitmap[y] & (0x80 >> x):
-						im.putpixel((imx + x, imy + y), RED)
+						self.im.putpixel((imx + x, imy + y), color)
 
 			imx += width
 
-	def render(self, width, height):
-		im = Image.new("RGB", (width, height))
+	def fetchDeparture(self, stop, route=None):
+		stopInfo = requests.get(f"{self.config['transit']['api']}/{stop}").json()
+		for departure in stopInfo["departures"]:
+			if not route or departure["route_id"] == route:
+				return departure
 
+	def renderBusTracker(self):
 		departures = []
-		for stop in self.config["bus_stops"]:
+		for stop in self.config["transit"]["stops"]:
 			if type(stop) is int:
 				departure = self.fetchDeparture(stop)
 			else:
@@ -138,15 +150,27 @@ class LedDisplay:
 				busName = d["route_short_name"] + (d["terminal"] if "terminal" in d else "")
 				departureTime = d["departure_text"].replace(" Min", "m")
 
-				self.print(im, 0, i * self.fontHeight, busName + heading)
-				self.print(im, 40, i * self.fontHeight, departureTime)
+				self.print("transit", 0, i * self.fontHeight, busName + heading)
+				self.print("transit", 20, i * self.fontHeight, departureTime)
 		else:
 			sky = "".join(random.sample(["\2", "\3"], counts=[3, 3], k=6)) + "\1" + "".join(random.sample(["\2", "\3"], counts=[2, 2], k=4))
-			self.print(im, 0, 0, sky)
-			self.print(im, 0, 1 * self.fontHeight, "Busses are done")
-			self.print(im, 0, 2 * self.fontHeight, "for the night...")
+			self.print("transit", 0, 0, sky)
+			self.print("transit", 0, 1 * self.fontHeight, "Busses are done")
+			self.print("transit", 0, 2 * self.fontHeight, "for the night...")
 
-		return im
+	def renderClock(self):
+		self.print("clock", 0, 0, time.strftime(self.config["clock"]["format"]))
+
+	def render(self, width, height):
+		self.im = Image.new("RGB", (width, height))
+
+		if self.config["transit"]["enabled"]:
+			self.renderBusTracker()
+
+		if self.config["clock"]["enabled"]:
+			self.renderClock()
+
+		return self.im
 
 
 def main():

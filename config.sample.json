@@ -1,6 +1,17 @@
 {
-	"transit_api": "https://svc.metrotransit.org/nextripv2",
-	"bus_stops": [
-		1000
-	]
+	"transit": {
+		"enabled": true,
+		"position": [0, 0],
+		"color": "#FF0000",
+		"api": "https://svc.metrotransit.org/nextripv2",
+		"stops": [
+			1000
+		]
+	},
+	"clock": {
+		"enabled": true,
+		"position": [46, 26],
+		"color": "#0000FF",
+		"format": "%H:%M"
+	}
 }
