@@ -1,0 +1,6 @@
+{
+	"transit_api": "https://svc.metrotransit.org/nextripv2",
+	"bus_stops": [
+		1000
+	]
+}
