@@ -6,6 +6,7 @@ import requests
 import time
 
 from argparse import ArgumentParser
+from datetime import datetime
 from PIL import Image
 from struct import unpack
 
@@ -16,6 +17,12 @@ class LedDisplay:
 	def __init__(self, config, font):
 		self.parseConfig(config)
 		self.parseFont(font)
+
+		if self.config["transit"]["enabled"]:
+			self.busTracker = BusTracker(self)
+
+		if self.config["weather"]["enabled"]:
+			self.weather = Weather(self)
 
 	def parseConfig(self, fileName):
 		with open(fileName, "r") as f:
@@ -43,25 +50,23 @@ class LedDisplay:
 
 		# Character data
 		magic = file.read(4)
-		file.read(4)  # Skip size
 		if magic != b"CDAT":
 			raise Exception("Failed to parse font (Missing CDAT)")
 
+		# Read in character data, to parse in the next step
+		sectionSize, = unpack("<L", file.read(4))
+		cdatTemp = file.read(sectionSize)
 		tiles = []
-		for _ in range(count):
-			tiles.append(file.read(height))
-
-		sectionSize = count * height
-		padding = 4 - sectionSize % 4 if sectionSize % 4 else 0
-		file.read(padding)
 
 		# Character widths
 		magic = file.read(4)
-		widths = []
 		if magic == b"CWTH":
 			file.read(4)  # Skip size
-			for _ in range(count):
-				widths.append(unpack("<B", file.read(1))[0])
+			for i in range(count):
+				tileWidth, = unpack("<B", file.read(1))
+
+				tile = b"".join([bytes([1 if (line & (0x80 >> i)) else 0 for i in range(tileWidth)]) for line in cdatTemp[i * height:(i + 1) * height]])
+				tiles.append(Image.frombytes("P", (tileWidth, height), tile))
 
 			sectionSize = count
 			padding = 4 - sectionSize % 4 if sectionSize % 4 else 0
@@ -69,6 +74,11 @@ class LedDisplay:
 		else:
 			file.seek(-4, 1)
 			widths = [width] * count
+
+			# Parse tiles
+			for i in range(count):
+				tile = b"".join([bytes([1 if (line & (0x80 >> i)) else 0 for i in range(width)]) for line in cdatTemp[i * height:(i + 1) * height]])
+				tiles.append(Image.frombytes("P", (width, height), tile))
 
 		# Character map
 		magic = file.read(4)
@@ -79,10 +89,7 @@ class LedDisplay:
 		output = {}
 		for i in range(count):
 			codepoint, = unpack("<H", file.read(2))
-			output[chr(codepoint)] = {
-				"bitmap": tiles[i],
-				"width": widths[i]
-			}
+			output[chr(codepoint)] = tiles[i]
 
 		sectionSize = count * 2
 		padding = 4 - sectionSize % 4 if sectionSize % 4 else 0
@@ -91,86 +98,126 @@ class LedDisplay:
 		self.fontHeight = height
 		self.font = output
 
-	def getColor(self, module):
+	def getPalette(self, module):
 		if module and "color" in self.config[module]:
 			hexColor = self.config[module]["color"]
-			r = int(hexColor[1:3], 16)
-			g = int(hexColor[3:5], 16)
-			b = int(hexColor[5:7], 16)
-			return (r, g, b)
-		
-		return (255, 255, 255)  # Default to white
+			return [0, 0, 0] + list(bytes.fromhex(hexColor[1:]))
 
-	def print(self, module, imx, imy, string):
-		color = (255, 255, 255)
+		return [0, 0, 0, 255, 255, 255]  # Default to white
+
+	def print(self, module, x, y, string):
 		if module:
 			ofs = self.config[module]["position"]
-			imx += ofs[0]
-			imy += ofs[1]
-			color = self.getColor(module)
+			x += ofs[0]
+			y += ofs[1]
+			pal = self.getPalette(module)
 
 		for letter in string:
 			# If letter missing, print '?'
 			if letter not in self.font:
 				letter = "?"
 
-			width = self.font[letter]["width"]
-			bitmap = self.font[letter]["bitmap"]
+			bitmap = self.font[letter]
+			bitmap.putpalette(pal)
 
 			# If we're going off screen, return
-			if imx + width > self.im.width or imy + self.fontHeight > self.im.height:
+			if x + bitmap.width > self.im.width or y + self.fontHeight > self.im.height:
 				return
 
-			for y in range(self.fontHeight):
-				for x in range(width):
-					if bitmap[y] & (0x80 >> x):
-						self.im.putpixel((imx + x, imy + y), color)
+			self.im.paste(bitmap, (x, y))
 
-			imx += width
-
-	def fetchDeparture(self, stop, route=None):
-		stopInfo = requests.get(f"{self.config['transit']['api']}/{stop}").json()
-		for departure in stopInfo["departures"]:
-			if not route or departure["route_id"] == route:
-				return departure
-
-	def renderBusTracker(self):
-		departures = []
-		for stop in self.config["transit"]["stops"]:
-			if type(stop) is int:
-				departure = self.fetchDeparture(stop)
-			else:
-				departure = self.fetchDeparture(*stop)
-			if departure:
-				departures.append(departure)
-
-		if len(departures) > 0:
-			for i, d in enumerate(departures):
-				heading = HEADINGS[d["direction_text"]]
-				busName = d["route_short_name"] + (d["terminal"] if "terminal" in d else "")
-				departureTime = d["departure_text"].replace(" Min", "m")
-
-				self.print("transit", 0, i * self.fontHeight, busName + heading)
-				self.print("transit", 20, i * self.fontHeight, departureTime)
-		else:
-			sky = "".join(random.sample(["\2", "\3"], counts=[3, 3], k=6)) + "\1" + "".join(random.sample(["\2", "\3"], counts=[2, 2], k=4))
-			self.print("transit", 0, 0, sky)
-			self.print("transit", 0, 1 * self.fontHeight, "Busses are done")
-			self.print("transit", 0, 2 * self.fontHeight, "for the night...")
+			x += bitmap.width
 
 	def renderClock(self):
-		self.print("clock", 0, 0, time.strftime(self.config["clock"]["format"]))
+		self.print("clock", 0, 0, time.strftime(self.config["clock"]["format"][int(time.time()) % 2]))
 
 	def render(self, width, height):
 		self.im = Image.new("RGB", (width, height))
 
 		if self.config["transit"]["enabled"]:
-			self.renderBusTracker()
+			self.busTracker.update()
+			self.busTracker.render()
+
+		if self.config["weather"]["enabled"]:
+			self.weather.update()
+			self.weather.render()
 
 		if self.config["clock"]["enabled"]:
 			self.renderClock()
 
 		return self.im
+
+
+class BusTracker(object):
+	def __init__(self, display):
+		self.display = display
+		self.departures = []
+		self.lastUpdated = 0
+		self.config = display.config["transit"]
+
+	def fetchDeparture(self, stop, route=None):
+		stopInfo = requests.get(f"{self.config['api']}/{stop}").json()
+		for departure in stopInfo["departures"]:
+			if not route or int(departure["route_id"]) == route:
+				if departure["schedule_relationship"] == "Scheduled":
+					return departure
+
+	def update(self):
+		if (time.time() - self.lastUpdated) < 30:
+			return
+
+		self.departures = []
+		for stop in self.config["stops"]:
+			if type(stop) is int:
+				departure = self.fetchDeparture(stop)
+			else:
+				departure = self.fetchDeparture(*stop)
+
+			if departure:
+				self.departures.append(departure)
+
+		self.lastUpdated = time.time()
+
+	def render(self):
+		if len(self.departures) > 0:
+			for i, d in enumerate(self.departures):
+				heading = HEADINGS[d["direction_text"]]
+				busName = d["route_short_name"] + (d["terminal"] if "terminal" in d else "")
+				if d["actual"]:
+					departureTime = d["departure_text"].replace(" Min", "m")
+				else:
+					departureTime = datetime.fromtimestamp(d["departure_time"]).strftime(":%M")
+
+				self.display.print("transit", 0, i * self.display.fontHeight, heading + busName)
+				self.display.print("transit", 25, i * self.display.fontHeight, departureTime)
+		else:
+			sky = "".join(random.sample(["\2", "\3"], counts=[3, 3], k=6)) + "\1" + "".join(random.sample(["\2", "\3"], counts=[2, 2], k=4))
+			self.display.print("transit", 0, 0, sky)
+			self.display.print("transit", 0, 1 * self.display.fontHeight, "Busses are done")
+			self.display.print("transit", 0, 2 * self.display.fontHeight, "for the night...")
+
+
+class Weather(object):
+	def __init__(self, display):
+		self.display = display
+		self.data = []
+		self.nextUpdate = 0
+		self.config = display.config["weather"]
+
+	def cToF(self, celsius):
+		return celsius * 9 / 5 + 32
+
+	def update(self):
+		if (time.time() - self.nextUpdate) < 0:
+			return
+
+		req = requests.get(f"https://api.weather.gov/stations/{self.config['station']}/observations/latest")
+		self.data = req.json()["properties"]
+
+		self.nextUpdate = datetime.strptime(req.headers["Expires"], "%a, %d %b %Y %H:%M:%S %Z").timestamp()
+
+	def render(self):
+		self.display.print("weather", 0, 0, f"{self.cToF(self.data['temperature']['value']):.0f}°F")
 
 
 def main():
@@ -186,9 +233,10 @@ def main():
 
 	display = LedDisplay(args.config, args.font)
 
-	im = display.render(args.width, args.height)
-
-	im.save(args.output)
+	while True:
+		im = display.render(args.width, args.height)
+		im.save(args.output)
+		time.sleep(1)
 
 
 if __name__ == "__main__":
