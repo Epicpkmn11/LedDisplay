@@ -106,6 +106,9 @@ class BusTracker(object):
 				if departure["schedule_relationship"] == "Scheduled":
 					return departure
 
+	def stars(self, count):
+		return "".join(random.sample(["★", "☆"], counts=[count, count], k=count * 2))
+
 	def update(self):
 		if (time.time() - self.lastUpdated) < 30:
 			return
@@ -138,7 +141,7 @@ class BusTracker(object):
 				self.display.print("transit", 0, i * self.display.font.height, heading + busName)
 				self.display.print("transit", 25, i * self.display.font.height, departureTime)
 		else:
-			sky = "".join(random.sample(["\2", "\3"], counts=[3, 3], k=6)) + "\1" + "".join(random.sample(["\2", "\3"], counts=[2, 2], k=4))
+			sky = stars(3) + "☽" + stars(2)
 			self.display.print("transit", 0, 0, sky)
 			self.display.print("transit", 0, self.display.font.height, "Busses are done")
 			self.display.print("transit", 0, 2 * self.display.font.height, "for the night...")
