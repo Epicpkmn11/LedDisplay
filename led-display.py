@@ -166,7 +166,8 @@ class Weather(object):
 		req = requests.get(f"https://api.weather.gov/stations/{self.config['station']}/observations/latest")
 		self.data = req.json()["properties"]
 
-		self.nextUpdate = datetime.strptime(req.headers["Expires"], "%a, %d %b %Y %H:%M:%S %Z").timestamp()
+		# self.nextUpdate = datetime.strptime(req.headers["Expires"], "%a, %d %b %Y %H:%M:%S %Z").timestamp()
+		self.nextUpdate = time.time() + 3600
 
 	def render(self):
 		if self.data == []:
