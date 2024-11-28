@@ -75,7 +75,12 @@ class LedDisplay:
 #		self.palette = graphics.Color(*[int(round(x * 255)) for x in colorsys.hsv_to_rgb(self.hue, 1.0, 1.0)])
 
 		if self.config["transit"]["enabled"]:
+			if not self.busTracker.hasBusses():
+				self.matrix.brightness = 40
+
 			self.busTracker.render()
+
+			self.matrix.brightness = 70
 
 		if self.config["weather"]["enabled"]:
 			self.weather.render()
@@ -153,6 +158,9 @@ class BusTracker(object):
 			self.display.print("transit", 0, 0, self.sky())
 			self.display.print("transit", 0, self.display.font.height, "Busses are done")
 			self.display.print("transit", 0, 2 * self.display.font.height, "for the night...")
+
+	def hasBusses(self):
+		return len(self.departures) > 0
 
 
 class Weather(object):
