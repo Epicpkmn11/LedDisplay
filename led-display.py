@@ -141,7 +141,7 @@ class BusTracker(object):
 				self.display.print("transit", 0, i * self.display.font.height, heading + busName)
 				self.display.print("transit", 25, i * self.display.font.height, departureTime)
 		else:
-			sky = stars(3) + "☽" + stars(2)
+			sky = self.stars(3) + "☽" + self.stars(2)
 			self.display.print("transit", 0, 0, sky)
 			self.display.print("transit", 0, self.display.font.height, "Busses are done")
 			self.display.print("transit", 0, 2 * self.display.font.height, "for the night...")
