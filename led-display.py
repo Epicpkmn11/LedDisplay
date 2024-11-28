@@ -131,11 +131,11 @@ class BusTracker(object):
 
 	def sky(self):
 		if self.skydelay == 0:
-			self.sky = self.stars(3) + "☽" + self.stars(2)
+			self.skycache = self.stars(3) + "☽" + self.stars(2)
 			self.skydelay = 10
 		self.skydelay -= 1
 
-		return self.sky
+		return self.skycache
 
 	def render(self):
 		if len(self.departures) > 0:
@@ -150,7 +150,7 @@ class BusTracker(object):
 				self.display.print("transit", 0, i * self.display.font.height, heading + busName)
 				self.display.print("transit", 25, i * self.display.font.height, departureTime)
 		else:
-			self.display.print("transit", 0, 0, sky)
+			self.display.print("transit", 0, 0, self.sky())
 			self.display.print("transit", 0, self.display.font.height, "Busses are done")
 			self.display.print("transit", 0, 2 * self.display.font.height, "for the night...")
 
