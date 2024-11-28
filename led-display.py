@@ -98,6 +98,7 @@ class BusTracker(object):
 		self.departures = []
 		self.lastUpdated = 0
 		self.config = display.config["transit"]
+		self.skydelay = 0
 
 	def fetchDeparture(self, stop, route=None):
 		stopInfo = requests.get(f"{self.config['api']}/{stop}").json()
@@ -105,9 +106,6 @@ class BusTracker(object):
 			if not route or int(departure["route_id"]) == route:
 				if departure["schedule_relationship"] == "Scheduled":
 					return departure
-
-	def stars(self, count):
-		return "".join(random.sample(["★", "☆"], counts=[count, count], k=count * 2))
 
 	def update(self):
 		if (time.time() - self.lastUpdated) < 30:
@@ -128,6 +126,17 @@ class BusTracker(object):
 		self.lastUpdated = time.time()
 		self.departures = departures
 
+	def stars(self, count):
+		return "".join(random.sample(["★", "☆"], counts=[count, count], k=count * 2))
+
+	def sky(self):
+		if self.skydelay == 0:
+			self.sky = self.stars(3) + "☽" + self.stars(2)
+			self.skydelay = 10
+		self.skydelay -= 1
+
+		return self.sky
+
 	def render(self):
 		if len(self.departures) > 0:
 			for i, d in enumerate(self.departures):
@@ -141,7 +150,6 @@ class BusTracker(object):
 				self.display.print("transit", 0, i * self.display.font.height, heading + busName)
 				self.display.print("transit", 25, i * self.display.font.height, departureTime)
 		else:
-			sky = self.stars(3) + "☽" + self.stars(2)
 			self.display.print("transit", 0, 0, sky)
 			self.display.print("transit", 0, self.display.font.height, "Busses are done")
 			self.display.print("transit", 0, 2 * self.display.font.height, "for the night...")
