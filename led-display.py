@@ -104,6 +104,7 @@ class BusTracker(object):
 		self.lastUpdated = 0
 		self.config = display.config["transit"]
 		self.skydelay = 0
+		self.error = None
 
 	def fetchDeparture(self, stop, route=None):
 		stopInfo = requests.get(f"{self.config['api']}/{stop}").json()
@@ -113,20 +114,27 @@ class BusTracker(object):
 					return departure
 
 	def update(self):
-		if (time.time() - self.lastUpdated) < 30:
+		# Only update once every 30 seconds, if this somehow gets
+		# below zero (probably a time sync) we don't want it getting stuck
+		deltaTime = time.time() - self.lastUpdated
+		if deltaTime < 30 and deltaTime >= 0:
 			return
 
 		print("[b] update")
 
 		departures = []
-		for stop in self.config["stops"]:
-			if type(stop) is int:
-				departure = self.fetchDeparture(stop)
-			else:
-				departure = self.fetchDeparture(*stop)
+		try:
+			for stop in self.config["stops"]:
+				if type(stop) is int:
+					departure = self.fetchDeparture(stop)
+				else:
+					departure = self.fetchDeparture(*stop)
 
-			if departure:
-				departures.append(departure)
+				if departure:
+					departures.append(departure)
+			self.error = None
+		except:
+			self.error = "Fetch failed"
 
 		self.lastUpdated = time.time()
 		self.departures = departures
@@ -143,7 +151,11 @@ class BusTracker(object):
 		return self.skycache
 
 	def render(self):
-		if len(self.departures) > 0:
+		if self.error or (time.time() - self.lastUpdated) > 60:
+			self.display.print("transit", 0, 0, 'API Error... "^_^')
+			if self.error:
+				self.display.print("transit", 0, self.display.font.height, self.error)
+		elif len(self.departures) > 0:
 			for i, d in enumerate(self.departures):
 				heading = HEADINGS[d["direction_text"]]
 				busName = d["route_short_name"] + (d["terminal"] if "terminal" in d else "")
@@ -169,6 +181,7 @@ class Weather(object):
 		self.data = []
 		self.nextUpdate = 0
 		self.config = display.config["weather"]
+		self.error = None
 
 	def cToF(self, celsius):
 		return celsius * 9 / 5 + 32
@@ -179,8 +192,12 @@ class Weather(object):
 		
 		print("[w] update")
 
-		req = requests.get(f"https://api.weather.gov/stations/{self.config['station']}/observations/latest")
-		self.data = req.json()["properties"]
+		try:
+			req = requests.get(f"https://api.weather.gov/stations/{self.config['station']}/observations/latest")
+			self.data = req.json()["properties"]
+			self.error = None
+		except:
+			self.error = "err"
 
 		# self.nextUpdate = datetime.strptime(req.headers["Expires"], "%a, %d %b %Y %H:%M:%S %Z").timestamp()
 		self.nextUpdate = time.time() + 3600
@@ -188,9 +205,10 @@ class Weather(object):
 	def render(self):
 		if self.data == []:
 			self.display.print("weather", 0, 0, "wait")
-			return
-
-		self.display.print("weather", 0, 0, f"{self.cToF(self.data['temperature']['value']):.0f}°F")
+		elif self.error:
+			self.display.print("weather", 0, 0, self.err)
+		else:
+			self.display.print("weather", 0, 0, f"{self.cToF(self.data['temperature']['value']):.0f}°F")
 
 
 def main():
