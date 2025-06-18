@@ -20,7 +20,7 @@ HUE_OFFSET = {"transit": 0.2, "clock": 0, "weather": 0.1}
 TEST_MODE = False
 
 # Buttons
-BUTTONS = (0,)
+BUTTONS = (6,)
 BTN_TOGGLE_PAGE = 0x01
 
 
@@ -61,9 +61,9 @@ class LedDisplay:
 	def scanButtons(self):
 		prevState = self.buttonState
 		self.buttonState = 0
-		for button in BUTTONS:
+		for i, button in enumerate(BUTTONS):
 			if not TEST_MODE:
-				self.buttonState |= GPIO.input(button) << button
+				self.buttonState |= GPIO.input(button) << i
 
 		self.pressed = (self.buttonState ^ prevState) & self.buttonState
 
