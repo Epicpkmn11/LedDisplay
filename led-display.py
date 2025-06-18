@@ -9,12 +9,17 @@ import time
 from argparse import ArgumentParser
 from datetime import datetime
 from PIL import Image
-from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 from struct import unpack
 from threading import Thread
 
 HEADINGS = {"NB": "↑", "EB": "→", "SB": "↓", "WB": "←"}
 HUE_OFFSET = {"transit": 0.2, "clock": 0, "weather": 0.1}
+TEST_MODE = False
+
+class FrfFont:
+	def __init__(self, bmp, height):
+		self.bmp = bmp
+		self.height = height
 
 class LedDisplay:
 	def __init__(self, config, font):
@@ -23,16 +28,20 @@ class LedDisplay:
 		self.drawCall = 0
 		self.rainbow = True
 
-		options = RGBMatrixOptions()
-		options.cols = 64
-		options.hardware_mapping = "adafruit-hat-pwm"
+		print(TEST_MODE)
+		if TEST_MODE:
+			self.font = self.parseFont(font)
+		else:
+			options = RGBMatrixOptions()
+			options.cols = 64
+			options.hardware_mapping = "adafruit-hat-pwm"
 
-		self.matrix = RGBMatrix(options=options)
-		self.canvas = self.matrix.CreateFrameCanvas()
-		self.font = graphics.Font()
-		self.font.LoadFont(font)
+			self.matrix = RGBMatrix(options=options)
+			self.canvas = self.matrix.CreateFrameCanvas()
+			self.font = graphics.Font()
+			self.font.LoadFont(font)
 
-		self.matrix.brightness = 70
+			self.matrix.brightness = 70
 
 		if self.config["transit"]["enabled"]:
 			self.busTracker = BusTracker(self)
@@ -44,11 +53,83 @@ class LedDisplay:
 		with open(fileName, "r") as f:
 			self.config = json.load(f)
 
+	def parseFont(self, fileName):
+		file = open(fileName, "rb")
+		file.seek(0, 2)
+		fileSize = file.tell()
+		file.seek(0)
+
+		magic = file.read(4)
+		if magic != b"RIFF":
+			raise Exception("Failed to parse font (Not a RIFF)")
+
+		size, = unpack("<I", file.read(4))
+		if size + 8 != fileSize:
+			raise Exception(f"Failed to parse font (Invalid size {size + 8} != {fileSize}")
+
+		# Metadata
+		magic = file.read(4)
+		if magic != b"META":
+			raise Exception("Failed to parse font (Missing META)")
+		_, width, height, count = unpack("<LBBH", file.read(8))
+
+		# Character data
+		magic = file.read(4)
+		file.read(4)  # Skip size
+		if magic != b"CDAT":
+			raise Exception("Failed to parse font (Missing CDAT)")
+
+		tiles = []
+		for _ in range(count):
+			tiles.append(file.read(height))
+
+		sectionSize = count * height
+		padding = 4 - sectionSize % 4 if sectionSize % 4 else 0
+		file.read(padding)
+
+		# Character widths
+		magic = file.read(4)
+		widths = []
+		if magic == b"CWTH":
+			file.read(4)  # Skip size
+			for _ in range(count):
+				widths.append(unpack("<B", file.read(1))[0])
+
+			sectionSize = count
+			padding = 4 - sectionSize % 4 if sectionSize % 4 else 0
+			file.read(padding)
+		else:
+			file.seek(-4, 1)
+			widths = [width] * count
+
+		# Character map
+		magic = file.read(4)
+		file.read(4)  # Skip size
+		if magic != b"CMAP":
+			raise Exception("Failed to parse font (Missing CMAP)")
+
+		output = {}
+		for i in range(count):
+			codepoint, = unpack("<H", file.read(2))
+			output[chr(codepoint)] = {
+				"bitmap": tiles[i],
+				"width": widths[i]
+			}
+
+		sectionSize = count * 2
+		padding = 4 - sectionSize % 4 if sectionSize % 4 else 0
+		file.read(padding)
+
+		return FrfFont(output, height)
+
 	def getPalette(self, module):
 		if self.rainbow:
 			self.drawCall += 1
 			hue = (self.hue - self.drawCall * 0.05) % 1.0
-			return graphics.Color(*[int(round(x * 255)) for x in colorsys.hsv_to_rgb(hue, 1.0, 1.0)])
+			if TEST_MODE:
+				return tuple(int(round(x * 255)) for x in colorsys.hsv_to_rgb(hue, 1.0, 1.0))
+			else:
+				return graphics.Color(*(int(round(x * 255)) for x in colorsys.hsv_to_rgb(hue, 1.0, 1.0)))
 
 		hexColor = "#FFFFFF"  # default to white
 		if module and "color" in self.config[module]:
@@ -64,7 +145,28 @@ class LedDisplay:
 		
 		pal = self.getPalette(module)
 
-		graphics.DrawText(self.canvas, self.font, x, y + self.font.height - 1, pal, string)
+		if TEST_MODE:
+			for letter in string:
+				# If letter missing, print '?'
+				if letter not in self.font.bmp:
+					letter = "?"
+
+				width = self.font.bmp[letter]["width"]
+				bitmap = self.font.bmp[letter]["bitmap"]
+
+				# If we're going off screen, return
+				if x + width > self.im.width or y + self.font.height > self.im.height:
+					return
+
+				for dy in range(self.font.height):
+					for dx in range(width):
+						if bitmap[dy] & (0x80 >> dx):
+							self.im.putpixel((x + dx, y + dy), pal)
+
+				x += width
+		else:
+			graphics.DrawText(self.canvas, self.font, x, y + self.font.height - 1, pal, string)
+
 
 	def renderClock(self):
 		t=time.time()
@@ -72,19 +174,23 @@ class LedDisplay:
 		self.print("clock", 0, 0, time.strftime(self.config["clock"]["format"][blink]))
 
 	def render(self, width, height):
-		self.canvas.Clear()
+		if TEST_MODE:
+			self.im = Image.new("RGB", (width, height))
+		else:
+			self.canvas.Clear()
 
 		if self.rainbow:
 			self.hue = (self.hue + 0.01) % 1.0
 			self.drawCall = 0
 
 		if self.config["transit"]["enabled"]:
-			if not self.busTracker.hasBusses():
+			if not self.busTracker.hasBusses() and not TEST_MODE:
 				self.matrix.brightness = 40
 
 			self.busTracker.render()
 
-			self.matrix.brightness = 70
+			if not TEST_MODE:
+				self.matrix.brightness = 70
 
 		if self.config["weather"]["enabled"]:
 			self.weather.render()
@@ -92,7 +198,10 @@ class LedDisplay:
 		if self.config["clock"]["enabled"]:
 			self.renderClock()
 
-		self.canvas = self.matrix.SwapOnVSync(self.canvas)
+		if TEST_MODE:
+			self.im.save("out.png")
+		else:
+			self.canvas = self.matrix.SwapOnVSync(self.canvas)
 
 	def update(self):
 		if self.config["transit"]["enabled"]:
@@ -217,14 +326,21 @@ class Weather(object):
 
 
 def main():
-	"Prototyping for Pi LED display"
+	"Pi LED display"
 
 	parser = ArgumentParser(description=main.__doc__)
 	parser.add_argument("config", type=str, help="config file")
 	parser.add_argument("font", type=str, help="FRF font (proportional supported)")
 	parser.add_argument("width", type=int, help="character width")
 	parser.add_argument("height", type=int, help="character height")
+	parser.add_argument("--testmode", "-t", action="store_const", const=True, help="output to an image for prototyping")
 	args = parser.parse_args()
+
+	if args.testmode:
+		global TEST_MODE
+		TEST_MODE = True
+	else:
+		from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
 
 	display = LedDisplay(args.config, args.font)
 
