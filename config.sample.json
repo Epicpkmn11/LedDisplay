@@ -10,13 +10,14 @@
 	},
 	"clock": {
 		"enabled": true,
-		"position": [46, 26],
+		"position": [46, 20],
 		"color": "#0000FF",
-		"format": ["%H:%M", "%H %M"]
+		"date_format": "%m/%d",
+		"time_format": ["%H:%M", "%H %M"]
 	},
 	"weather": {
 		"enabled": true,
-		"position": [48, 20],
+		"position": [48, 13],
 		"color": "#00FF00",
 		"station": "KMSP"
 	}

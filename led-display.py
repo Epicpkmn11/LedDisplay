@@ -171,7 +171,8 @@ class LedDisplay:
 	def renderClock(self):
 		t=time.time()
 		blink = t - int(t) > 0.5
-		self.print("clock", 0, 0, time.strftime(self.config["clock"]["format"][blink]))
+		self.print("clock", 0, 0, time.strftime(self.config["clock"]["date_format"]))
+		self.print("clock", 0, self.font.height, time.strftime(self.config["clock"]["time_format"][blink]))
 
 	def render(self, width, height):
 		if TEST_MODE:
