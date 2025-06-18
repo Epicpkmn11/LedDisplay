@@ -12,6 +12,9 @@ from PIL import Image
 from struct import unpack
 from threading import Thread
 
+# Comment for testing
+from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+
 HEADINGS = {"NB": "↑", "EB": "→", "SB": "↓", "WB": "←"}
 HUE_OFFSET = {"transit": 0.2, "clock": 0, "weather": 0.1}
 TEST_MODE = False
@@ -289,7 +292,12 @@ class BusTracker(object):
 			for i, d in enumerate(self.departures):
 				y = i * self.display.font.height
 				self.display.print("transit", 0, y, d[0]["heading"] + d[0]["name"])
-				self.display.print("transit", 20, y, "+".join(x["time"] for x in d[:2]))
+				self.display.print("transit", 19, y, d[0]["time"])
+				if len(d) > 1:
+					self.display.print("transit", 35, y, d[1]["time"])
+
+			pages = len(self.config["stops"])
+			self.display.print("transit", 52, 0, f"{self.page + 1}/{pages}")
 		else:
 			self.display.print("transit", 0, 0, self.sky())
 			self.display.print("transit", 0, self.display.font.height, "Busses are done")
