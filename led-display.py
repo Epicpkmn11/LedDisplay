@@ -220,13 +220,27 @@ class BusTracker(object):
 		self.skydelay = 0
 		self.error = None
 
-	def fetchDeparture(self, stop, route=None):
+	def fetchDepartures(self, stop, route=None):
 		print(f"[b] fetch {stop}")
 		stopInfo = requests.get(f"{self.config['api']}/{stop}").json()
-		for departure in stopInfo["departures"]:
-			if not route or int(departure["route_id"]) == route:
-				if departure["schedule_relationship"] == "Scheduled":
-					return departure
+
+		departures = []
+		for d in stopInfo["departures"]:
+			if not route or int(d["route_id"]) == route:
+				if d["schedule_relationship"] == "Scheduled":
+					# Format bus name
+					out = {
+						"heading": HEADINGS[d["direction_text"]],
+						"name": d["route_short_name"].replace("Line", "Li.") + (d["terminal"] if "terminal" in d else "")
+					}
+
+					if d["actual"]:
+						out["time"] = departureTime = d["departure_text"].replace(" Min", "m")
+					else:
+						out["time"] = datetime.fromtimestamp(d["departure_time"]).strftime(":%M")
+					departures.append(out)
+
+		return departures
 
 	def update(self):
 		# Only update once every 30 seconds, if this somehow gets
@@ -241,9 +255,9 @@ class BusTracker(object):
 		try:
 			for stop in self.config["stops"]:
 				if type(stop) is int:
-					departure = self.fetchDeparture(stop)
+					departure = self.fetchDepartures(stop)
 				else:
-					departure = self.fetchDeparture(*stop)
+					departure = self.fetchDepartures(*stop)
 
 				if departure:
 					departures.append(departure)
@@ -266,21 +280,16 @@ class BusTracker(object):
 		return self.skycache
 
 	def render(self):
-		if self.error or (time.time() - self.lastUpdated) > 90:
+		if (time.time() - self.lastUpdated) > 90:
+			self.display.print("transit", 0, 0, "Loading...")
+		if self.error:
 			self.display.print("transit", 0, 0, 'API Error... "^_^')
-			if self.error:
-				self.display.print("transit", 0, self.display.font.height, self.error)
+			self.display.print("transit", 0, self.display.font.height, self.error)
 		elif len(self.departures) > 0:
 			for i, d in enumerate(self.departures):
-				heading = HEADINGS[d["direction_text"]]
-				busName = d["route_short_name"] + (d["terminal"] if "terminal" in d else "")
-				if d["actual"]:
-					departureTime = d["departure_text"].replace(" Min", "m")
-				else:
-					departureTime = datetime.fromtimestamp(d["departure_time"]).strftime(":%M")
-
-				self.display.print("transit", 0, i * self.display.font.height, heading + busName)
-				self.display.print("transit", 25, i * self.display.font.height, departureTime)
+				y = i * self.display.font.height
+				self.display.print("transit", 0, y, d[0]["heading"] + d[0]["name"])
+				self.display.print("transit", 20, y, "+".join(x["time"] for x in d[:2]))
 		else:
 			self.display.print("transit", 0, 0, self.sky())
 			self.display.print("transit", 0, self.display.font.height, "Busses are done")
