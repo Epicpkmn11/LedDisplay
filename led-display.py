@@ -19,6 +19,11 @@ HEADINGS = {"NB": "↑", "EB": "→", "SB": "↓", "WB": "←"}
 HUE_OFFSET = {"transit": 0.2, "clock": 0, "weather": 0.1}
 TEST_MODE = False
 
+# Buttons
+BUTTONS = (0,)
+BTN_TOGGLE_PAGE = 0x01
+
+
 class FrfFont:
 	def __init__(self, bmp, height):
 		self.bmp = bmp
@@ -30,8 +35,9 @@ class LedDisplay:
 		self.hue = 0.0
 		self.drawCall = 0
 		self.rainbow = True
-
-		print(TEST_MODE)
+		self.buttonState = 0
+		self.pressed = 0
+	
 		if TEST_MODE:
 			self.font = self.parseFont(font)
 		else:
@@ -51,6 +57,15 @@ class LedDisplay:
 
 		if self.config["weather"]["enabled"]:
 			self.weather = Weather(self)
+
+	def scanButtons(self):
+		prevState = self.buttonState
+		self.buttonState = 0
+		for button in BUTTONS:
+			if not TEST_MODE:
+				self.buttonState |= GPIO.input(button) << button
+
+		self.pressed = (self.buttonState ^ prevState) & self.buttonState
 
 	def parseConfig(self, fileName):
 		with open(fileName, "r") as f:
@@ -128,7 +143,7 @@ class LedDisplay:
 	def getPalette(self, module):
 		if self.rainbow:
 			self.drawCall += 1
-			hue = (self.hue - self.drawCall * 0.05) % 1.0
+			hue = (self.hue - self.drawCall * 0.02) % 1.0
 			if TEST_MODE:
 				return tuple(int(round(x * 255)) for x in colorsys.hsv_to_rgb(hue, 1.0, 1.0))
 			else:
@@ -174,10 +189,15 @@ class LedDisplay:
 	def renderClock(self):
 		t=time.time()
 		blink = t - int(t) > 0.5
-		self.print("clock", 0, 0, time.strftime(self.config["clock"]["date_format"]))
-		self.print("clock", 0, self.font.height, time.strftime(self.config["clock"]["time_format"][blink]))
+		if "date_format" in self.config["clock"]:
+			self.print("clock", 0, 0, time.strftime(self.config["clock"]["date_format"]))
+			self.print("clock", 0, self.font.height, time.strftime(self.config["clock"]["time_format"][blink]))
+		else:
+			self.print("clock", 0, 0, time.strftime(self.config["clock"]["time_format"][blink]))
 
 	def render(self, width, height):
+		self.scanButtons()
+
 		if TEST_MODE:
 			self.im = Image.new("RGB", (width, height))
 		else:
@@ -188,6 +208,9 @@ class LedDisplay:
 			self.drawCall = 0
 
 		if self.config["transit"]["enabled"]:
+			if self.pressed & BTN_TOGGLE_PAGE:
+				self.busTracker.switchPage()
+
 			if not self.busTracker.hasBusses() and not TEST_MODE:
 				self.matrix.brightness = 40
 
@@ -217,11 +240,18 @@ class LedDisplay:
 class BusTracker(object):
 	def __init__(self, display):
 		self.display = display
+		self.page = 0
 		self.departures = []
 		self.lastUpdated = 0
 		self.config = display.config["transit"]
 		self.skydelay = 0
 		self.error = None
+
+	def switchPage(self):
+		maxPages = len(self.config["stops"])
+		self.page = (self.page + 1) % maxPages
+		self.lastUpdated = 0
+		print("[b] Switching to page {self.page}")
 
 	def fetchDepartures(self, stop, route=None):
 		print(f"[b] fetch {stop}")
@@ -256,7 +286,7 @@ class BusTracker(object):
 
 		departures = []
 		try:
-			for stop in self.config["stops"]:
+			for stop in self.config["stops"][self.page]:
 				if type(stop) is int:
 					departure = self.fetchDepartures(stop)
 				else:
@@ -285,7 +315,7 @@ class BusTracker(object):
 	def render(self):
 		if (time.time() - self.lastUpdated) > 90:
 			self.display.print("transit", 0, 0, "Loading...")
-		if self.error:
+		elif self.error:
 			self.display.print("transit", 0, 0, 'API Error... "^_^')
 			self.display.print("transit", 0, self.display.font.height, self.error)
 		elif len(self.departures) > 0:
@@ -358,7 +388,8 @@ def main():
 		global TEST_MODE
 		TEST_MODE = True
 	else:
-		from rgbmatrix import RGBMatrix, RGBMatrixOptions, graphics
+		GPIO.setmode(GPIO.BOARD)
+		GPIO.setup(BUTTONS, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 	display = LedDisplay(args.config, args.font)
 
@@ -372,6 +403,8 @@ def main():
 			update.start()
 
 		time.sleep(0.2)
+
+	GPIO.cleanup()
 
 
 if __name__ == "__main__":
