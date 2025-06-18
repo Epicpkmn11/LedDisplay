@@ -315,7 +315,7 @@ class Weather(object):
 			self.error = "err"
 
 		# self.nextUpdate = datetime.strptime(req.headers["Expires"], "%a, %d %b %Y %H:%M:%S %Z").timestamp()
-		self.nextUpdate = time.time() + 3600
+		self.nextUpdate = time.time() + 600
 
 	def render(self):
 		if self.data == []:
