@@ -4,6 +4,7 @@ import colorsys
 import json
 import random
 import requests
+import RPi.GPIO as GPIO
 import time
 
 from argparse import ArgumentParser
@@ -20,7 +21,7 @@ HUE_OFFSET = {"transit": 0.2, "clock": 0, "weather": 0.1}
 TEST_MODE = False
 
 # Buttons
-BUTTONS = (6,)
+BUTTONS = (16,)
 BTN_TOGGLE_PAGE = 0x01
 
 
@@ -64,6 +65,7 @@ class LedDisplay:
 		for i, button in enumerate(BUTTONS):
 			if not TEST_MODE:
 				self.buttonState |= GPIO.input(button) << i
+				print("state", button, self.buttonState)
 
 		self.pressed = (self.buttonState ^ prevState) & self.buttonState
 
@@ -283,10 +285,15 @@ class BusTracker(object):
 			return
 
 		print("[b] update")
+		fetchingPage = self.page
 
 		departures = []
 		try:
 			for stop in self.config["stops"][self.page]:
+				# Abort if page was changed mid-way through
+				if fetchingPage != self.page:
+					return
+
 				if type(stop) is int:
 					departure = self.fetchDepartures(stop)
 				else:
