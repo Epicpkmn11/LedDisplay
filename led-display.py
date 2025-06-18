@@ -14,17 +14,18 @@ from struct import unpack
 from threading import Thread
 
 HEADINGS = {"NB": "↑", "EB": "→", "SB": "↓", "WB": "←"}
-
+HUE_OFFSET = {"transit": 0.2, "clock": 0, "weather": 0.1}
 
 class LedDisplay:
 	def __init__(self, config, font):
 		self.parseConfig(config)
 		self.hue = 0.0
-		self.palette = graphics.Color(255, 255, 255)
+		self.drawCall = 0
+		self.rainbow = True
 
 		options = RGBMatrixOptions()
 		options.cols = 64
-		options.hardware_mapping = "adafruit-hat"  #-pwm
+		options.hardware_mapping = "adafruit-hat-pwm"
 
 		self.matrix = RGBMatrix(options=options)
 		self.canvas = self.matrix.CreateFrameCanvas()
@@ -44,11 +45,16 @@ class LedDisplay:
 			self.config = json.load(f)
 
 	def getPalette(self, module):
+		if self.rainbow:
+			self.drawCall += 1
+			hue = (self.hue - self.drawCall * 0.05) % 1.0
+			return graphics.Color(*[int(round(x * 255)) for x in colorsys.hsv_to_rgb(hue, 1.0, 1.0)])
+
+		hexColor = "#FFFFFF"  # default to white
 		if module and "color" in self.config[module]:
 			hexColor = self.config[module]["color"]
-			return graphics.Color(*list(bytes.fromhex(hexColor[1:])))
 
-		return graphics.Color(255, 255, 255)  # Default to white
+		return graphics.Color(*list(bytes.fromhex(hexColor[1:])))
 
 	def print(self, module, x, y, string):
 		if module:
@@ -68,11 +74,9 @@ class LedDisplay:
 	def render(self, width, height):
 		self.canvas.Clear()
 
-#		# rainbow
-#		self.hue += 0.005
-#		if self.hue > 1.0:
-#			self.hue -= 1.0
-#		self.palette = graphics.Color(*[int(round(x * 255)) for x in colorsys.hsv_to_rgb(self.hue, 1.0, 1.0)])
+		if self.rainbow:
+			self.hue = (self.hue + 0.01) % 1.0
+			self.drawCall = 0
 
 		if self.config["transit"]["enabled"]:
 			if not self.busTracker.hasBusses():
@@ -107,6 +111,7 @@ class BusTracker(object):
 		self.error = None
 
 	def fetchDeparture(self, stop, route=None):
+		print(f"[b] fetch {stop}")
 		stopInfo = requests.get(f"{self.config['api']}/{stop}").json()
 		for departure in stopInfo["departures"]:
 			if not route or int(departure["route_id"]) == route:
@@ -151,7 +156,7 @@ class BusTracker(object):
 		return self.skycache
 
 	def render(self):
-		if self.error or (time.time() - self.lastUpdated) > 60:
+		if self.error or (time.time() - self.lastUpdated) > 90:
 			self.display.print("transit", 0, 0, 'API Error... "^_^')
 			if self.error:
 				self.display.print("transit", 0, self.display.font.height, self.error)
