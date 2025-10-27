@@ -45,6 +45,7 @@ class LedDisplay:
 			options = RGBMatrixOptions()
 			options.cols = 64
 			options.hardware_mapping = "adafruit-hat-pwm"
+			options.gpio_slowdown = 2
 
 			self.matrix = RGBMatrix(options=options)
 			self.canvas = self.matrix.CreateFrameCanvas()
@@ -65,7 +66,6 @@ class LedDisplay:
 		for i, button in enumerate(BUTTONS):
 			if not TEST_MODE:
 				self.buttonState |= GPIO.input(button) << i
-				print("state", button, self.buttonState)
 
 		self.pressed = (self.buttonState ^ prevState) & self.buttonState
 
@@ -145,7 +145,7 @@ class LedDisplay:
 	def getPalette(self, module):
 		if self.rainbow:
 			self.drawCall += 1
-			hue = (self.hue - self.drawCall * 0.02) % 1.0
+			hue = (self.hue - self.drawCall * 0.03) % 1.0
 			if TEST_MODE:
 				return tuple(int(round(x * 255)) for x in colorsys.hsv_to_rgb(hue, 1.0, 1.0))
 			else:
@@ -253,7 +253,7 @@ class BusTracker(object):
 		maxPages = len(self.config["stops"])
 		self.page = (self.page + 1) % maxPages
 		self.lastUpdated = 0
-		print("[b] Switching to page {self.page}")
+		print(f"[b] Switching to page {self.page}")
 
 	def fetchDepartures(self, stop, route=None):
 		print(f"[b] fetch {stop}")
@@ -322,6 +322,8 @@ class BusTracker(object):
 	def render(self):
 		if (time.time() - self.lastUpdated) > 90:
 			self.display.print("transit", 0, 0, "Loading...")
+			pages = len(self.config["stops"])
+			self.display.print("transit", 52, 0, f"{self.page + 1}/{pages}")
 		elif self.error:
 			self.display.print("transit", 0, 0, 'API Error... "^_^')
 			self.display.print("transit", 0, self.display.font.height, self.error)
