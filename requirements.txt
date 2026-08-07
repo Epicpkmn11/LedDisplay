@@ -1,0 +1,3 @@
+git+https://github.com/hzeller/rpi-rgb-led-matrix
+RPi.GPIO
+requests

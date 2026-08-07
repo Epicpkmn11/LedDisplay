@@ -1,0 +1,12 @@
+[Unit]
+Description=LED Display
+
+[Service]
+ExecStart=/usr/bin/python3 /home/dietpi/LedDisplay/led-display.py /home/dietpi/LedDisplay/config.json /home/dietpi/LedDisplay/font/ledfont.bdf 64 32
+Restart=on-failure
+RestartSec=30s
+BindsTo=network-online.target
+Needs=network-online.target
+
+[Install]
+WantedBy=multi-user.target
